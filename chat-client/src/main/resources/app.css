@@ -1,0 +1,1757 @@
+/*
+ * Quack Chat — Apple-flavoured interface system
+ * ---------------------------------------------------------------------------
+ * 设计来源：Apple WWDC "Designing Fluid Interfaces" / "Principles of Great Design"。
+ * 翻译到 JavaFX 的四条主线：
+ *   1. 材质与层次：窗口 / 侧栏 / 内容 / 浮层用不同"厚度"的表面区分层级，
+ *      用发丝级分隔线和低透明度而不是粗边框；浮层（Toast、@ 候选、登录卡）才用投影。
+ *   2. 克制的色彩：一个系统蓝作为唯一强调色，语义色只用于语义（红=危险/未读，绿=在线/成功）。
+ *   3. 字阶：用「字重 + 字号 + 行距」共同建立层级，而不是只靠字号；正文接近 0 字距。
+ *   4. 动效：本文件只负责静止状态；运动交给 ui/motion（弹簧，可中断、带速度）。
+ *
+ * 主题：所有颜色都是「查找色（looked-up color）」令牌，定义在 .root / .root.dark 里，
+ * 切换主题 = 给场景根节点加/去 "dark" 类，无需重建界面。
+ * JavaFX 没有 backdrop-filter，材质用「半透明叠层 + 顶部高光 + 发丝线」模拟，
+ * 这是这套设计在桌面端能落地的最接近做法（不是真模糊）。
+ */
+
+/* =========================================================================
+   1. 令牌（Design Tokens）
+   ========================================================================= */
+
+.root {
+    -fx-font-family: "SF Pro Text", "Segoe UI Variable Text", "Segoe UI",
+                     "PingFang SC", "Microsoft YaHei UI", "Noto Sans SC", sans-serif;
+    -fx-font-size: 13px;
+    -fx-font-smoothing-type: gray;
+    -fx-accent: -c-accent;
+    -fx-focus-color: -c-accent;
+    -fx-faint-focus-color: -c-accent-soft;
+
+    /* 表面：从"内容"到"浮层"依次变亮/变厚 */
+    -c-bg:            #ffffff;                 /* 窗口 / 聊天画布 */
+    -c-bg-sunken:     #f2f2f7;                 /* 次级画布（置灰区域） */
+    -c-surface:       #ffffff;                 /* 卡片 */
+    -c-surface-soft:  #f2f2f7;                 /* 侧栏 / 分组列表底 */
+    -c-chrome:        rgba(255, 255, 255, 0.82); /* 标题栏（材质） */
+    -c-chrome-edge:   rgba(255, 255, 255, 0.55); /* 材质顶部高光 */
+    -c-field:         #f2f2f7;                 /* 输入框填充 */
+    -c-field-strong:  #ffffff;
+
+    /* 交互态：叠在黑/白上的低透明度，主题里自动翻转 */
+    -c-hover:         rgba(0, 0, 0, 0.045);
+    -c-pressed:       rgba(0, 0, 0, 0.085);
+    -c-selected:      rgba(10, 122, 255, 0.11);
+    -c-selected-strong: rgba(10, 122, 255, 0.16);
+
+    /* 文本 */
+    -c-text:          #1d1d1f;
+    -c-text-secondary: rgba(60, 60, 67, 0.62);
+    -c-text-tertiary:  rgba(60, 60, 67, 0.38);
+    -c-text-on-accent: #ffffff;
+
+    /* 强调色 / 语义色 */
+    -c-accent:        #0a7aff;
+    -c-accent-hover:  #0069e0;
+    -c-accent-press:  #005cc7;
+    -c-accent-soft:   rgba(10, 122, 255, 0.10);
+    -c-green:         #34c759;
+    -c-orange:        #ff9500;
+    -c-red:           #ff3b30;
+    -c-red-hover:     #e0342a;
+
+    /* 线与阴影 */
+    -c-separator:     rgba(60, 60, 67, 0.13);
+    -c-separator-strong: rgba(60, 60, 67, 0.22);
+    -c-border:        rgba(60, 60, 67, 0.10);
+    -c-shadow:        rgba(20, 28, 45, 0.16);
+
+    /* 气泡 */
+    -c-bubble-mine-a: #0a7aff;
+    -c-bubble-mine-b: #0a6cf0;
+    -c-bubble-other:  #e9e9eb;
+    -c-bubble-other-text: #1d1d1f;
+
+    /* 登录 / 主页壁纸 */
+    -c-wallpaper-a:   #b7d1ff;
+    -c-wallpaper-b:   #e3ccff;
+    -c-wallpaper-c:   #c9efff;
+    -c-banner-from:   #f7c66b;
+    -c-banner-to:     #e98f4a;
+}
+
+.root.dark {
+    -c-bg:            #1c1c1e;
+    -c-bg-sunken:     #161618;
+    -c-surface:       #2c2c2e;
+    -c-surface-soft:  #232325;
+    -c-chrome:        rgba(44, 44, 46, 0.86);
+    -c-chrome-edge:   rgba(255, 255, 255, 0.06);
+    -c-field:         #3a3a3c;
+    -c-field-strong:  #48484a;
+
+    -c-hover:         rgba(255, 255, 255, 0.07);
+    -c-pressed:       rgba(255, 255, 255, 0.13);
+    -c-selected:      rgba(10, 132, 255, 0.22);
+    -c-selected-strong: rgba(10, 132, 255, 0.30);
+
+    -c-text:          #f5f5f7;
+    -c-text-secondary: rgba(235, 235, 245, 0.62);
+    -c-text-tertiary:  rgba(235, 235, 245, 0.36);
+
+    -c-accent:        #0a84ff;
+    -c-accent-hover:  #3395ff;
+    -c-accent-press:  #0071e3;
+    -c-accent-soft:   rgba(10, 132, 255, 0.18);
+
+    -c-separator:     rgba(84, 84, 88, 0.62);
+    -c-separator-strong: rgba(120, 120, 128, 0.75);
+    -c-border:        rgba(84, 84, 88, 0.55);
+    -c-shadow:        rgba(0, 0, 0, 0.55);
+
+    -c-bubble-mine-a: #0a84ff;
+    -c-bubble-mine-b: #0a76e6;
+    -c-bubble-other:  #3a3a3c;
+    -c-bubble-other-text: #f5f5f7;
+
+    -c-wallpaper-a:   #101d3a;
+    -c-wallpaper-b:   #241633;
+    -c-wallpaper-c:   #0a2029;
+    -c-banner-from:   #8a5a1f;
+    -c-banner-to:     #6d3f12;
+}
+
+/* =========================================================================
+   2. 无边框窗口外壳
+   ========================================================================= */
+
+.window-root {
+    -fx-background-color: transparent;
+}
+
+.window-frame {
+    -fx-background-color: -c-bg;
+    -fx-background-radius: 16;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+}
+
+.window-frame.maximized {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-width: 0;
+}
+
+.window-shell {
+    -fx-background-color: transparent;
+}
+
+/* 标题栏是一层"材质"：半透明 + 顶部高光 + 发丝分隔 */
+.title-bar {
+    -fx-background-color: linear-gradient(to bottom, -c-chrome-edge, transparent), -c-chrome;
+    -fx-background-radius: 16 16 0 0;
+    -fx-background-insets: 0, 0;
+    -fx-border-color: transparent transparent -c-separator transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.window-frame.maximized .title-bar {
+    -fx-background-radius: 0;
+}
+
+.title-bar-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.title-button,
+.title-button-close {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 7 12 7 12;
+    -fx-cursor: hand;
+}
+
+.title-button:hover {
+    -fx-background-color: -c-hover;
+}
+
+.title-button:pressed {
+    -fx-background-color: -c-pressed;
+}
+
+.title-button-close:hover {
+    -fx-background-color: -c-red;
+}
+
+.title-button-close:pressed {
+    -fx-background-color: -c-red-hover;
+}
+
+.title-icon {
+    -fx-fill: transparent;
+    -fx-stroke: -c-text-secondary;
+    -fx-stroke-width: 1.35;
+    -fx-stroke-line-cap: round;
+}
+
+.title-button-close:hover .title-icon {
+    -fx-stroke: #ffffff;
+}
+
+/* =========================================================================
+   3. 登录 / 注册
+   ========================================================================= */
+
+.login-root {
+    /* 整窗就是背景层：柔和的多点渐变，不再套一层"外框 + 白卡" */
+    -fx-background-color:
+        radial-gradient(center 18% 10%, radius 68%, -c-wallpaper-c, transparent),
+        radial-gradient(center 88% 92%, radius 62%, -c-wallpaper-b, transparent),
+        linear-gradient(to bottom right, -c-wallpaper-a, -c-wallpaper-b);
+    -fx-background-radius: 16;
+}
+
+/* 登录页不再有外层大白卡：表单直接浮在渐变上，靠半透明输入框保证可读性 */
+.login-card {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-radius: 0;
+    -fx-effect: null;
+}
+
+.login-card .combo-box,
+.login-card .login-field {
+    -fx-background-color: rgba(255, 255, 255, 0.82);
+    -fx-border-color: rgba(255, 255, 255, 0.65);
+}
+
+.login-card .combo-box:focused,
+.login-card .login-field:focused {
+    -fx-background-color: rgba(255, 255, 255, 0.96);
+    -fx-border-color: -c-accent;
+}
+
+.login-root .secondary-button {
+    -fx-background-color: rgba(255, 255, 255, 0.58);
+}
+
+.login-root .secondary-button:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.78);
+}
+
+.root.dark .login-card .combo-box,
+.root.dark .login-card .login-field {
+    -fx-background-color: rgba(255, 255, 255, 0.10);
+    -fx-border-color: rgba(255, 255, 255, 0.16);
+}
+
+.root.dark .login-card .combo-box:focused,
+.root.dark .login-card .login-field:focused {
+    -fx-background-color: rgba(255, 255, 255, 0.17);
+    -fx-border-color: -c-accent;
+}
+
+.root.dark .login-root .secondary-button {
+    -fx-background-color: rgba(255, 255, 255, 0.10);
+}
+
+.root.dark .login-root .secondary-button:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.16);
+}
+
+.login-title {
+    -fx-font-size: 26px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.login-subtitle {
+    -fx-font-size: 12px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.login-hint {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-secondary;
+    -fx-text-alignment: center;
+}
+
+.login-status {
+    -fx-font-size: 12px;
+    -fx-text-fill: -c-text-secondary;
+    -fx-text-alignment: center;
+}
+
+.login-status.error,
+.error {
+    -fx-text-fill: -c-red;
+}
+
+.login-divider {
+    -fx-background-color: rgba(60, 60, 67, 0.16);
+}
+
+.root.dark .login-divider {
+    -fx-background-color: rgba(255, 255, 255, 0.14);
+}
+
+.field-label {
+    -fx-font-size: 11.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.login-field {
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 10 12 10 12;
+    -fx-prompt-text-fill: -c-text-secondary;
+    -fx-text-fill: -c-text;
+    -fx-highlight-fill: -c-accent-soft;
+}
+
+/* =========================================================================
+   4. 按钮体系
+   ========================================================================= */
+
+.primary-button {
+    -fx-background-color: -c-accent;
+    -fx-text-fill: -c-text-on-accent;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 12;
+    -fx-padding: 11 22 11 22;
+    -fx-cursor: hand;
+}
+
+.primary-button:hover {
+    -fx-background-color: -c-accent-hover;
+}
+
+.primary-button:pressed {
+    -fx-background-color: -c-accent-press;
+}
+
+.primary-button:disabled {
+    -fx-opacity: 0.42;
+}
+
+.secondary-button {
+    -fx-background-color: -c-field;
+    -fx-text-fill: -c-text;
+    -fx-font-size: 13px;
+    -fx-background-radius: 11;
+    -fx-border-color: transparent;
+    -fx-padding: 9 18 9 18;
+    -fx-cursor: hand;
+}
+
+.secondary-button:hover {
+    -fx-background-color: -c-hover, -c-field;
+    -fx-background-insets: 0, 0;
+}
+
+.secondary-button:pressed {
+    -fx-background-color: -c-pressed;
+}
+
+.small-primary-button {
+    -fx-background-color: -c-accent;
+    -fx-text-fill: -c-text-on-accent;
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 9;
+    -fx-padding: 6 15 6 15;
+    -fx-cursor: hand;
+}
+
+.small-primary-button:hover {
+    -fx-background-color: -c-accent-hover;
+}
+
+.danger-button {
+    -fx-background-color: -c-red;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 11;
+    -fx-padding: 9 18 9 18;
+    -fx-cursor: hand;
+}
+
+.danger-button:hover {
+    -fx-background-color: -c-red-hover;
+}
+
+.link-button {
+    -fx-text-fill: -c-accent;
+    -fx-font-size: 12.5px;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 3 6 3 6;
+    -fx-cursor: hand;
+}
+
+.link-button:hover {
+    -fx-underline: true;
+}
+
+/* 分段控件（设置里的外观选择） */
+.segmented {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 10;
+    -fx-padding: 3;
+}
+
+.segment {
+    -fx-background-color: transparent;
+    -fx-text-fill: -c-text;
+    -fx-font-size: 12.5px;
+    -fx-background-radius: 8;
+    -fx-padding: 6 14 6 14;
+    -fx-cursor: hand;
+}
+
+.segment:hover {
+    -fx-background-color: -c-hover;
+}
+
+.segment-active {
+    -fx-background-color: -c-surface;
+    -fx-text-fill: -c-text;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(20, 28, 45, 0.14), 6, 0.02, 0, 1);
+}
+
+.root.dark .segment-active {
+    -fx-background-color: #48484a;
+}
+
+/* =========================================================================
+   5. 主界面骨架
+   ========================================================================= */
+
+.main-root {
+    -fx-background-color: -c-bg;
+    -fx-background-radius: 0 0 16 16;
+}
+
+.left-region {
+    -fx-background-color: transparent;
+}
+
+.list-host {
+    -fx-background-color: -c-surface-soft;
+}
+
+.content-host {
+    -fx-background-color: -c-bg;
+}
+
+.sidebar {
+    -fx-background-color: -c-surface-soft;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent -c-separator transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.sidebar-title {
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.search-field {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 10;
+    -fx-border-color: transparent;
+    -fx-border-radius: 10;
+    -fx-border-width: 1.5;
+    -fx-padding: 8 12 8 12;
+    -fx-prompt-text-fill: -c-text-tertiary;
+    -fx-text-fill: -c-text;
+    -fx-highlight-fill: -c-accent-soft;
+}
+
+.search-field:focused {
+    -fx-background-color: -c-field-strong;
+    -fx-border-color: -c-accent;
+}
+
+/* 会话列表 */
+.conversation-list {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+.conversation-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-background-radius: 11;
+    -fx-padding: 0 4 0 4;
+    -fx-cursor: hand;
+}
+
+.conversation-list .list-cell:filled:hover {
+    -fx-background-color: -c-hover;
+}
+
+.conversation-list .list-cell:filled:selected {
+    -fx-background-color: -c-selected;
+}
+
+.conversation-list .list-cell:filled:selected:hover {
+    -fx-background-color: -c-selected-strong;
+}
+
+.conversation-list .list-cell:empty {
+    -fx-background-color: transparent;
+}
+
+.conversation-list .scroll-bar:horizontal,
+.message-list .scroll-bar:horizontal {
+    -fx-pref-height: 0;
+    -fx-max-height: 0;
+    -fx-opacity: 0;
+    -fx-padding: 0;
+}
+
+/* 头像：尺寸由 Avatars.apply 内联控制，这里只给外观 */
+.avatar {
+    -fx-background-color: linear-gradient(to bottom right, #5b9dff, #2f7bf0);
+    -fx-background-radius: 50%;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+    -fx-min-width: 44;
+    -fx-min-height: 44;
+    -fx-pref-width: 44;
+    -fx-pref-height: 44;
+    -fx-max-width: 44;
+    -fx-max-height: 44;
+}
+
+.conv-title {
+    -fx-font-size: 13.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.conv-preview {
+    -fx-font-size: 12px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.conv-time {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-tertiary;
+}
+
+.presence-dot {
+    -fx-text-fill: -c-green;
+    -fx-font-size: 9px;
+}
+
+.unread-badge {
+    -fx-background-color: -c-red;
+    -fx-background-radius: 9;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 10px;
+    -fx-font-weight: bold;
+    -fx-padding: 0 5 0 5;
+    -fx-min-width: 18;
+    -fx-min-height: 18;
+    -fx-alignment: center;
+}
+
+.pin-mark {
+    -fx-font-size: 10px;
+}
+
+.sidebar-footer {
+    -fx-border-color: -c-separator transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.me-name {
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.me-qc {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.me-status {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-green;
+}
+
+.switch-hint {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-accent;
+    -fx-padding: 3 8 3 8;
+    -fx-background-color: -c-accent-soft;
+    -fx-background-radius: 7;
+}
+
+.entry-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 11;
+    -fx-cursor: hand;
+    -fx-padding: 0;
+}
+
+.entry-button:hover {
+    -fx-background-color: -c-hover;
+}
+
+.entry-icon {
+    -fx-font-size: 17px;
+}
+
+.entry-title {
+    -fx-font-size: 13.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.section-title {
+    -fx-font-size: 11.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text-tertiary;
+    -fx-padding: 4 0 0 6;
+}
+
+.requests-body {
+    -fx-background-color: -c-bg;
+}
+
+.banner {
+    -fx-background-color: -c-banner-from;
+    -fx-text-fill: #ffffff;
+    -fx-padding: 9 16 9 16;
+    -fx-font-size: 12.5px;
+    -fx-font-weight: bold;
+}
+
+.banner.banner-error {
+    -fx-background-color: -c-red;
+    -fx-text-fill: #ffffff;
+}
+
+/* =========================================================================
+   6. 左侧导航栏（macOS 侧栏的平面化版本）
+   ========================================================================= */
+
+.rail {
+    -fx-background-color: -c-surface-soft;
+    -fx-border-color: transparent -c-separator transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.rail-logo {
+    -fx-background-color: linear-gradient(to bottom right, #4f9bff, #0a7aff);
+    -fx-background-radius: 11;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-alignment: center;
+    -fx-min-width: 32;
+    -fx-min-height: 32;
+    -fx-pref-width: 32;
+    -fx-pref-height: 32;
+}
+
+.rail-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 12;
+    -fx-cursor: hand;
+    -fx-alignment: center;
+    -fx-padding: 8 0 8 0;
+}
+
+.rail-item:hover {
+    -fx-background-color: -c-hover;
+}
+
+.rail-item-active {
+    -fx-background-color: -c-accent-soft;
+}
+
+.rail-item-active:hover {
+    -fx-background-color: -c-selected;
+}
+
+.rail-icon {
+    -fx-font-size: 18px;
+}
+
+.rail-text {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.rail-item-active .rail-text {
+    -fx-text-fill: -c-accent;
+    -fx-font-weight: bold;
+}
+
+.rail-avatar {
+    -fx-font-size: 15px;
+}
+
+.rail-dot {
+    -fx-background-color: -c-green;
+    -fx-background-radius: 4;
+}
+
+.rail-gear {
+    -fx-background-radius: 11;
+    -fx-cursor: hand;
+}
+
+.rail-gear:hover {
+    -fx-background-color: -c-hover;
+}
+
+.rail-gear-shape {
+    -fx-fill: -c-text-secondary;
+}
+
+.rail-gear:hover .rail-gear-shape {
+    -fx-fill: -c-text;
+}
+
+/* =========================================================================
+   7. 通讯录
+   ========================================================================= */
+
+.contacts-scroll,
+.contacts-scroll > .viewport {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.contact-row {
+    -fx-background-radius: 11;
+    -fx-cursor: hand;
+}
+
+.contact-row:hover {
+    -fx-background-color: -c-hover;
+}
+
+.add-friend-button {
+    -fx-background-color: -c-accent-soft;
+    -fx-text-fill: -c-accent;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 9;
+    -fx-padding: 1 9 3 9;
+    -fx-cursor: hand;
+}
+
+.add-friend-button:hover {
+    -fx-background-color: -c-selected;
+}
+
+/* =========================================================================
+   8. 聊天区
+   ========================================================================= */
+
+.chat-pane {
+    -fx-background-color: -c-bg;
+    -fx-background-radius: 0 0 16 0;
+}
+
+.chat-header {
+    -fx-background-color: -c-chrome;
+    -fx-border-color: transparent transparent -c-separator transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-cursor: hand;
+}
+
+.chat-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.chat-subtitle {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.chat-more {
+    -fx-text-fill: -c-text-secondary;
+    -fx-font-size: 20px;
+    -fx-padding: 0 8 4 8;
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+}
+
+.chat-more:hover {
+    -fx-background-color: -c-hover;
+}
+
+.message-wrapper {
+    -fx-background-color: -c-bg;
+}
+
+.message-list {
+    -fx-background-color: -c-bg;
+    -fx-border-color: transparent;
+    -fx-padding: 12 0 12 0;
+}
+
+.message-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.message-list .list-cell:filled:selected,
+.message-list .list-cell:filled:hover {
+    -fx-background-color: transparent;
+}
+
+.message-cell {
+    -fx-background-color: transparent;
+}
+
+.empty-state {
+    -fx-text-fill: -c-text-tertiary;
+    -fx-font-size: 13px;
+    -fx-text-alignment: center;
+}
+
+.empty-state .glyph {
+    -fx-stroke: -c-text-tertiary;
+}
+
+/* 气泡：大圆角、我的用系统蓝，对方的用中性灰（iMessage 语汇） */
+.bubble-mine {
+    -fx-background-color: linear-gradient(to bottom right, -c-bubble-mine-a, -c-bubble-mine-b);
+    -fx-text-fill: #ffffff;
+    -fx-background-radius: 19 19 6 19;
+    -fx-padding: 9 14 9 14;
+    -fx-font-size: 14px;
+}
+
+.bubble-other {
+    -fx-background-color: -c-bubble-other;
+    -fx-text-fill: -c-bubble-other-text;
+    -fx-background-radius: 19 19 19 6;
+    -fx-padding: 9 14 9 14;
+    -fx-font-size: 14px;
+    -fx-border-color: transparent;
+}
+
+.bubble-meta {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -c-text-tertiary;
+}
+
+.bubble-pending {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -c-text-tertiary;
+}
+
+.bubble-failed {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -c-red;
+}
+
+.bubble-sender {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-secondary;
+    -fx-padding: 0 2 0 2;
+}
+
+.bubble-avatar {
+    -fx-font-size: 13px;
+}
+
+.system-message {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 11;
+    -fx-padding: 4 12 4 12;
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+/* 输入区 */
+.composer {
+    -fx-background-color: -c-chrome;
+    -fx-border-color: -c-separator transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-background-radius: 0 0 16 0;
+}
+
+.message-input {
+    -fx-background-color: -c-field;
+    -fx-control-inner-background: -c-field;
+    -fx-control-inner-background-alt: -c-field;
+    -fx-background-radius: 13;
+    -fx-border-color: transparent;
+    -fx-border-radius: 13;
+    -fx-border-width: 1.5;
+    -fx-font-size: 14px;
+    -fx-padding: 9 12 9 12;
+    -fx-pref-height: 62;
+    -fx-text-fill: -c-text;
+    -fx-prompt-text-fill: -c-text-tertiary;
+    -fx-highlight-fill: -c-accent-soft;
+}
+
+.message-input .content {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 13;
+}
+
+.message-input .scroll-pane,
+.message-input .scroll-pane .viewport {
+    -fx-background-color: transparent;
+}
+
+.message-input:focused {
+    -fx-background-color: -c-field-strong;
+    -fx-border-color: -c-accent;
+}
+
+.input-hint {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-tertiary;
+}
+
+.send-button {
+    -fx-background-color: -c-accent;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 13.5px;
+    -fx-font-weight: bold;
+    -fx-background-radius: 18;
+    -fx-padding: 8 24 8 24;
+    -fx-cursor: hand;
+}
+
+.send-button:hover {
+    -fx-background-color: -c-accent-hover;
+}
+
+.send-button:pressed {
+    -fx-background-color: -c-accent-press;
+}
+
+.send-button:disabled {
+    -fx-opacity: 0.4;
+}
+
+.composer-action {
+    -fx-background-color: transparent;
+    -fx-background-radius: 9;
+    -fx-padding: 5 8 5 8;
+    -fx-cursor: hand;
+}
+
+.composer-action:hover {
+    -fx-background-color: -c-hover;
+}
+
+.composer-action:pressed {
+    -fx-background-color: -c-pressed;
+}
+
+/* =========================================================================
+   9. 滚动条（细、无按钮、悬停变粗）
+   ========================================================================= */
+
+.scroll-bar:vertical,
+.scroll-bar:horizontal {
+    -fx-background-color: transparent;
+}
+
+.scroll-bar:vertical {
+    -fx-pref-width: 8;
+}
+
+.scroll-bar:horizontal {
+    -fx-pref-height: 8;
+}
+
+.scroll-bar:vertical .track,
+.scroll-bar:horizontal .track {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.scroll-bar:vertical .thumb,
+.scroll-bar:horizontal .thumb {
+    -fx-background-color: -c-separator-strong;
+    -fx-background-radius: 4;
+}
+
+.scroll-bar:vertical .thumb:hover,
+.scroll-bar:horizontal .thumb:hover {
+    -fx-background-color: -c-text-tertiary;
+}
+
+.scroll-bar .increment-button,
+.scroll-bar .decrement-button {
+    -fx-pref-height: 0;
+    -fx-pref-width: 0;
+    -fx-opacity: 0;
+}
+
+.scroll-bar .increment-arrow,
+.scroll-bar .decrement-arrow {
+    -fx-shape: "";
+    -fx-padding: 0;
+}
+
+/* =========================================================================
+   10. 弹窗 / 设置
+   ========================================================================= */
+
+.modal-body {
+    -fx-background-color: -c-bg;
+}
+
+.modal-hint {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -c-text-tertiary;
+}
+
+.confirm-message {
+    -fx-font-size: 13.5px;
+    -fx-text-fill: -c-text;
+}
+
+.chip {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 9;
+    -fx-padding: 3 9 3 9;
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.chip-brand {
+    -fx-background-color: -c-accent-soft;
+    -fx-text-fill: -c-accent;
+    -fx-background-radius: 9;
+    -fx-padding: 3 9 3 9;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.option-row {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 12;
+    -fx-cursor: hand;
+}
+
+.option-row:hover {
+    -fx-background-color: -c-hover, -c-field;
+    -fx-background-insets: 0, 0;
+}
+
+.option-title {
+    -fx-font-size: 13.5px;
+    -fx-text-fill: -c-text;
+}
+
+.option-value {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.option-arrow {
+    -fx-font-size: 15px;
+    -fx-text-fill: -c-text-tertiary;
+}
+
+.option-icon {
+    -fx-font-size: 15px;
+}
+
+.setting-row {
+    -fx-border-color: transparent transparent -c-separator transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-cursor: hand;
+}
+
+.setting-row:hover {
+    -fx-background-color: -c-hover;
+}
+
+.danger-text {
+    -fx-font-size: 13.5px;
+    -fx-text-fill: -c-red;
+}
+
+.danger-text-strong {
+    -fx-font-size: 13.5px;
+    -fx-text-fill: -c-red;
+    -fx-font-weight: bold;
+}
+
+.setting-row:hover .danger-text-strong {
+    -fx-text-fill: -c-red-hover;
+}
+
+/* 开关（iOS 语汇） */
+.switch-track {
+    -fx-background-color: -c-separator-strong;
+    -fx-background-radius: 12;
+    -fx-cursor: hand;
+}
+
+.switch-track.on {
+    -fx-background-color: -c-green;
+}
+
+.switch-thumb {
+    -fx-fill: #ffffff;
+    -fx-effect: dropshadow(gaussian, rgba(20, 28, 45, 0.28), 4, 0.05, 0, 1);
+}
+
+/* =========================================================================
+   11. 个人主页 / 群主页 / 空间
+   ========================================================================= */
+
+.profile-root {
+    -fx-background-color: -c-bg-sunken;
+}
+
+/* 分组卡片放在浅灰画布上，才读得出"一组一组"的结构 */
+.profile-root .group-header {
+    -fx-background-color: -c-surface;
+}
+
+.profile-scroll,
+.profile-scroll > .viewport {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.profile-banner {
+    -fx-background-color: linear-gradient(to bottom right, -c-banner-from, -c-banner-to);
+    -fx-background-radius: 0;
+}
+
+.banner-circle {
+    -fx-fill: rgba(255, 255, 255, 0.16);
+}
+
+.banner-tag {
+    -fx-text-fill: rgba(255, 255, 255, 0.92);
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+.profile-card {
+    -fx-background-color: -c-surface;
+    -fx-background-radius: 18;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 18;
+    -fx-padding: 16 0 16 0;
+    -fx-effect: dropshadow(gaussian, rgba(20, 28, 45, 0.10), 20, 0.03, 0, 6);
+}
+
+.root.dark .profile-card {
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 20, 0.03, 0, 6);
+}
+
+.profile-avatar {
+    -fx-font-size: 30px;
+}
+
+.profile-name {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.profile-sub {
+    -fx-font-size: 12px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.like-box {
+    -fx-padding: 5 11 5 11;
+    -fx-background-color: rgba(255, 149, 0, 0.12);
+    -fx-background-radius: 14;
+    -fx-cursor: hand;
+}
+
+.like-box:hover {
+    -fx-background-color: rgba(255, 149, 0, 0.20);
+}
+
+.like-icon {
+    -fx-font-size: 18px;
+}
+
+.like-count {
+    -fx-font-size: 12px;
+    -fx-text-fill: -c-orange;
+    -fx-font-weight: bold;
+}
+
+.profile-signature {
+    -fx-font-size: 13px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.profile-chip {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 8;
+    -fx-padding: 3 9 3 9;
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.tile {
+    -fx-background-color: -c-accent-soft;
+    -fx-background-radius: 14;
+    -fx-cursor: hand;
+}
+
+.tile:hover {
+    -fx-background-color: -c-selected;
+}
+
+.tile-icon {
+    -fx-font-size: 20px;
+}
+
+.tile-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.tile-sub {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.group-header {
+    -fx-background-color: -c-surface;
+    -fx-background-radius: 0 0 18 18;
+    -fx-border-color: transparent transparent -c-separator transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.group-avatar {
+    -fx-font-size: 24px;
+    -fx-background-radius: 16;
+}
+
+.card-title {
+    -fx-font-size: 13.5px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.card-action {
+    -fx-font-size: 12px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.info-card {
+    -fx-background-color: -c-surface;
+    -fx-background-radius: 14;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 14;
+}
+
+.member-name {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.member-section {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: -c-text-tertiary;
+    -fx-padding: 10 0 2 6;
+}
+
+.invite-avatar {
+    -fx-background-color: -c-field;
+    -fx-text-fill: -c-text-tertiary;
+    -fx-font-size: 18px;
+}
+
+/* 空间 */
+.moment-card {
+    -fx-background-color: -c-surface;
+    -fx-background-radius: 16;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 16;
+}
+
+.moment-text {
+    -fx-font-size: 13.5px;
+    -fx-text-fill: -c-text;
+}
+
+.moment-draft {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 12;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 12;
+}
+
+.moment-media {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: transparent;
+    -fx-cursor: hand;
+}
+
+.moment-media:hover {
+    -fx-border-color: -c-separator-strong;
+}
+
+.moment-tab {
+    -fx-background-color: -c-field;
+    -fx-border-color: transparent;
+    -fx-border-radius: 18;
+    -fx-background-radius: 18;
+    -fx-text-fill: -c-text;
+    -fx-font-size: 13px;
+    -fx-padding: 6 18 6 18;
+    -fx-min-width: 112;
+    -fx-pref-width: 112;
+    -fx-min-height: 34;
+    -fx-pref-height: 34;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+
+.moment-tab:hover {
+    -fx-background-color: -c-hover, -c-field;
+}
+
+.moment-tab-active {
+    -fx-background-color: -c-accent;
+    -fx-text-fill: #ffffff;
+    -fx-font-weight: bold;
+}
+
+.moment-tab-active:hover {
+    -fx-background-color: -c-accent-hover;
+}
+
+.moment-action {
+    -fx-background-color: -c-field;
+    -fx-border-color: transparent;
+    -fx-border-radius: 17;
+    -fx-background-radius: 17;
+    -fx-text-fill: -c-text;
+    -fx-font-size: 12.5px;
+    -fx-padding: 0;
+    -fx-min-width: 92;
+    -fx-pref-width: 92;
+    -fx-max-width: 92;
+    -fx-min-height: 32;
+    -fx-pref-height: 32;
+    -fx-max-height: 32;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+
+.moment-action:hover {
+    -fx-background-color: -c-hover, -c-field;
+}
+
+.moment-action-active {
+    -fx-background-color: -c-accent-soft;
+    -fx-text-fill: -c-accent;
+}
+
+.icon-plus-button {
+    -fx-background-color: -c-accent;
+    -fx-background-radius: 17;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 20px;
+    -fx-font-weight: bold;
+    -fx-padding: 0;
+    -fx-alignment: center;
+    -fx-min-width: 34;
+    -fx-pref-width: 34;
+    -fx-max-width: 34;
+    -fx-min-height: 34;
+    -fx-pref-height: 34;
+    -fx-max-height: 34;
+    -fx-cursor: hand;
+}
+
+.icon-plus-button:hover {
+    -fx-background-color: -c-accent-hover;
+}
+
+/* =========================================================================
+   12. 富消息
+   ========================================================================= */
+
+.image-bubble {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 15;
+    -fx-padding: 3;
+    -fx-border-color: transparent;
+    -fx-border-radius: 15;
+}
+
+.image-bubble-mine {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 15;
+    -fx-padding: 3;
+}
+
+.file-card {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 14;
+    -fx-border-color: transparent;
+    -fx-border-radius: 14;
+    -fx-cursor: hand;
+}
+
+.file-card:hover {
+    -fx-background-color: -c-hover, -c-field;
+}
+
+.file-card-mine {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 14;
+    -fx-cursor: hand;
+}
+
+.file-name {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -c-text;
+}
+
+.file-meta {
+    -fx-font-size: 11px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.file-progress {
+    -fx-pref-height: 5;
+}
+
+.file-progress-text {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -c-text-secondary;
+}
+
+.video-bubble {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 15;
+    -fx-padding: 3;
+    -fx-border-color: transparent;
+    -fx-border-radius: 15;
+    -fx-cursor: hand;
+}
+
+.video-bubble-mine {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 15;
+    -fx-padding: 3;
+    -fx-cursor: hand;
+}
+
+.video-play {
+    -fx-font-size: 34px;
+    -fx-text-fill: #ffffff;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.5), 8, 0, 0, 2);
+}
+
+.video-duration {
+    -fx-background-color: rgba(0, 0, 0, 0.55);
+    -fx-background-radius: 8;
+    -fx-padding: 1 6 1 6;
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 10.5px;
+}
+
+/* =========================================================================
+   13. 浮层：Toast / @ 候选 / 图片查看器
+   ========================================================================= */
+
+.toast-success {
+    -fx-background-color: rgba(28, 28, 30, 0.92);
+    -fx-text-fill: #ffffff;
+    -fx-padding: 9 18 9 18;
+    -fx-background-radius: 13;
+    -fx-font-size: 12.5px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.28), 16, 0.04, 0, 6);
+}
+
+.toast-error {
+    -fx-background-color: rgba(200, 44, 38, 0.95);
+    -fx-text-fill: #ffffff;
+    -fx-padding: 9 18 9 18;
+    -fx-background-radius: 13;
+    -fx-font-size: 12.5px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.28), 16, 0.04, 0, 6);
+}
+
+.mention-popup {
+    -fx-background-color: -c-surface;
+    -fx-background-radius: 12;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 12;
+    -fx-padding: 4;
+    -fx-effect: dropshadow(gaussian, -c-shadow, 18, 0.05, 0, 8);
+}
+
+.mention-row {
+    -fx-background-radius: 8;
+    -fx-cursor: hand;
+}
+
+.mention-row:hover {
+    -fx-background-color: -c-hover;
+}
+
+.mention-name {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: -c-text;
+}
+
+.mention-role {
+    -fx-font-size: 10.5px;
+    -fx-text-fill: -c-text-tertiary;
+}
+
+.image-viewer {
+    -fx-background-color: rgba(0, 0, 0, 0.92);
+}
+
+/* =========================================================================
+   14. 分割线 / 其他
+   ========================================================================= */
+
+.split-handle {
+    -fx-background-color: -c-separator;
+}
+
+.split-handle:hover {
+    -fx-background-color: -c-accent;
+}
+
+.split-handle-v {
+    -fx-background-color: -c-separator;
+}
+
+.split-handle-v:hover {
+    -fx-background-color: -c-accent;
+}
+
+.edge-to-edge {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+/* ScrollPane 的 viewport 默认是 Modena 的灰底，这里统一透出父容器背景 */
+.scroll-pane,
+.scroll-pane > .viewport,
+.scroll-pane > .corner {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+}
+
+.scroll-pane:focused {
+    -fx-background-insets: 0;
+}
+
+/* 拖拽缩放期间临时关闭投影：模糊效果每帧重算非常贵 */
+.window-frame.resizing {
+    -fx-effect: null;
+}
+
+/* 按下反馈：廉价而有效的"跟手感" */
+.button:pressed,
+.primary-button:pressed,
+.small-primary-button:pressed,
+.secondary-button:pressed,
+.danger-button:pressed {
+    -fx-opacity: 0.86;
+}
+
+
+/* =========================================================================
+   15. 统一的矢量图标（颜色跟随文字层级，浅色/深色自动适配）
+   ========================================================================= */
+
+.glyph {
+    -fx-fill: transparent;
+    -fx-stroke: -c-text-secondary;
+    -fx-stroke-width: 1.7;
+    -fx-stroke-line-cap: round;
+    -fx-stroke-line-join: round;
+}
+
+.rail-item-active .glyph {
+    -fx-stroke: -c-accent;
+}
+
+.rail-gear .glyph {
+    -fx-stroke: -c-text-secondary;
+}
+
+.rail-gear:hover .glyph {
+    -fx-stroke: -c-text;
+}
+
+.composer-action .glyph {
+    -fx-stroke: -c-text-secondary;
+}
+
+.composer-action:hover .glyph {
+    -fx-stroke: -c-text;
+}
+
+.contact-row .glyph,
+.option-row .glyph {
+    -fx-stroke: -c-text-secondary;
+}
+
+.contact-row:hover .glyph,
+.option-row:hover .glyph {
+    -fx-stroke: -c-text;
+}
+
+.tile .glyph {
+    -fx-stroke: -c-accent;
+}
+
+.file-icon .glyph {
+    -fx-stroke: -c-text-secondary;
+}
+
+.like-icon .glyph {
+    -fx-stroke: -c-orange;
+}
+
+.pin-mark .glyph {
+    -fx-stroke: -c-text-tertiary;
+}
+
+/* =========================================================================
+   16. 弹出控件（菜单 / 下拉 / 提示）——Modena 默认外观在这里被完全替换
+   ========================================================================= */
+
+.context-menu {
+    -fx-background-color: -c-surface;
+    -fx-background-radius: 12;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 12;
+    -fx-padding: 5;
+    -fx-effect: dropshadow(gaussian, -c-shadow, 20, 0.06, 0, 8);
+}
+
+.context-menu .menu-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 7 12 7 12;
+}
+
+.context-menu .menu-item:focused,
+.context-menu .menu-item:hover {
+    -fx-background-color: -c-hover;
+}
+
+.context-menu .menu-item .label {
+    -fx-text-fill: -c-text;
+    -fx-font-size: 13px;
+}
+
+.context-menu .separator .line {
+    -fx-border-color: -c-separator transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.combo-box {
+    -fx-background-color: -c-field;
+    -fx-background-radius: 10;
+    -fx-border-color: transparent;
+    -fx-border-radius: 10;
+    -fx-border-width: 1.5;
+    -fx-padding: 1 4 1 8;
+    -fx-cursor: hand;
+}
+
+.combo-box:hover {
+    -fx-background-color: -c-hover, -c-field;
+}
+
+.combo-box:focused {
+    -fx-border-color: -c-accent;
+    -fx-background-color: -c-field-strong;
+}
+
+.combo-box .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -c-text;
+    -fx-font-size: 12.5px;
+    -fx-padding: 6 4 6 2;
+}
+
+.combo-box .arrow-button {
+    -fx-background-color: transparent;
+}
+
+.combo-box .arrow {
+    -fx-background-color: -c-text-secondary;
+    -fx-shape: "M1 3.5 L5 7.5 L9 3.5";
+    -fx-scale-shape: true;
+}
+
+.combo-box-popup .list-view {
+    -fx-background-color: -c-surface;
+    -fx-background-radius: 12;
+    -fx-border-color: -c-border;
+    -fx-border-radius: 12;
+    -fx-padding: 4;
+    -fx-effect: dropshadow(gaussian, -c-shadow, 20, 0.06, 0, 8);
+}
+
+.combo-box-popup .list-view .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -c-text;
+    -fx-background-radius: 8;
+    -fx-padding: 7 12 7 12;
+}
+
+.combo-box-popup .list-view .list-cell:filled:hover,
+.combo-box-popup .list-view .list-cell:filled:selected {
+    -fx-background-color: -c-hover;
+    -fx-text-fill: -c-text;
+}
+
+.tooltip {
+    -fx-background-color: rgba(28, 28, 30, 0.94);
+    -fx-text-fill: #ffffff;
+    -fx-background-radius: 8;
+    -fx-padding: 5 10 5 10;
+    -fx-font-size: 11.5px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.22), 10, 0.02, 0, 3);
+}
+
+/* 登录页的账号下拉：和输入框同宽、同高 */
+.login-card .combo-box {
+    -fx-pref-height: 38;
+}

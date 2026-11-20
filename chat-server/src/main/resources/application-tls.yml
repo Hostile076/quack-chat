@@ -1,0 +1,15 @@
+# TLS 配置示例：用 profile "tls" 启动
+#   java -jar QuackChatServer.jar --spring.profiles.active=tls
+# 证书用 JDK 自带 keytool 生成（见 README「公网部署与 TLS」）：
+#   keytool -genkeypair -alias quack -keyalg RSA -keysize 2048 -validity 365 \
+#     -storetype PKCS12 -keystore data/tls/quack.p12 -storepass changeit \
+#     -dname "CN=your.domain"
+server:
+  port: 8443
+  ssl:
+    enabled: true
+    # 相对路径按“进程工作目录”解析；从 exe 启动时可用绝对路径或设置 QUACK_TLS_KEYSTORE
+    key-store: ${QUACK_TLS_KEYSTORE:${user.dir}/data/tls/quack.p12}
+    key-store-password: ${QUACK_TLS_PASSWORD:changeit}
+    key-store-type: PKCS12
+    key-alias: ${QUACK_TLS_ALIAS:quack}

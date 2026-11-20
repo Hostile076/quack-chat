@@ -1,0 +1,33 @@
+# 构建产物
+target/
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# 打包产物（dist 是给人下载的，不进版本库；需要时跑 packaging/build-exe.ps1 重新生成）
+dist/
+# jpackage 运行期数据：临时文件、Tomcat 工作区、JavaFX 缓存
+data/
+packaging/.fxcache/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# 日志与临时文件
+*.log
+hs_err_pid*
+replay_pid*
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 本地测试数据（e2e / 截图探针）
+.e2e/
+.snapdata/

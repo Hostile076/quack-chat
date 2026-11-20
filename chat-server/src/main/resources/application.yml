@@ -1,0 +1,25 @@
+server:
+  port: 8080
+  tomcat:
+    # 真正的 basedir 在 ChatServerApplication 里按“可执行文件旁的 data 目录”动态设置，
+    # 这里不写死，避免装到只读目录时启动失败。server:
+
+spring:
+  application:
+    name: quack-chat-server
+  # 骨架阶段没有任何数据库依赖，内存实现见 ChatServerApplication 注释。
+  # 接 MySQL 时在这里加 datasource，并把 service 层的 InMemory 实现换成 Mapper。
+  main:
+    banner-mode: off
+  servlet:
+    multipart:
+      # 默认 1MB，视频稍大就会 413；和 FileController 的上限保持一致
+      max-file-size: 300MB
+      max-request-size: 320MB
+
+logging:
+  level:
+    root: info
+    io.quack: debug
+  pattern:
+    console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
